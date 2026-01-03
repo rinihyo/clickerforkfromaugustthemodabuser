@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clicker Admin</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem;
+        font-family: system-ui, sans-serif;
+        background: #111;
+        color: #fff;
+      }
+      h1 {
+        margin-bottom: 1.5rem;
+      }
+      #click {
+        width: 150px;
+        height: 150px;
+        font-size: 1.5rem;
+        cursor: pointer;
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        transition: transform 0.1s;
+        margin-bottom: 2rem;
+      }
+      #click:hover {
+        background: #dc2626;
+      }
+      #click:active {
+        transform: scale(0.95);
+      }
+      #result {
+        margin-bottom: 2rem;
+        font-size: 1.25rem;
+        min-height: 1.5em;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        max-width: 900px;
+      }
+      th,
+      td {
+        border: 1px solid #333;
+        padding: 0.75rem 1rem;
+        text-align: left;
+      }
+      th {
+        background: #222;
+      }
+      tr {
+        transition: background 0.2s;
+      }
+      tr.ack {
+        background: #22c55e40;
+      }
+      .flag {
+        font-size: 1.5rem;
+        margin-right: 0.5rem;
+      }
+      #client-count {
+        color: #888;
+        margin-bottom: 1rem;
+      }
+      .no-clients {
+        color: #666;
+        font-style: italic;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Clicker Admin</h1>
+    <button id="click">CLICK!</button>
+    <div id="result"></div>
+    <div id="client-count">0 clients connected</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Country</th>
+          <th>Device</th>
+          <th>Connected</th>
+        </tr>
+      </thead>
+      <tbody id="clients"></tbody>
+    </table>
+    <script>
+      /**
+       * @typedef {Object} ClientData
+       * @property {string} id - Unique client identifier
+       * @property {string} name - Display name
+       * @property {string | null} country - Country code
+       * @property {string | null} userAgent - User agent string
+       * @property {number} connectedAt - Connection timestamp
+       */
+
+      /**
+       * @typedef {Object} WsMessage
+       * @property {string} type - Message type
+       * @property {string} [id] - Client ID for ack/leave
+       * @property {ClientData} [client] - Client data for join
+       * @property {ClientData[]} [clients] - Client list
+       */
+
+      /** @type {HTMLButtonElement} */
+      const btn = /** @type {HTMLButtonElement} */ (
+        document.getElementById('click')
+      )
+      /** @type {HTMLElement} */
+      const result = /** @type {HTMLElement} */ (
+        document.getElementById('result')
+      )
+      /** @type {HTMLTableSectionElement} */
+      const clientsBody = /** @type {HTMLTableSectionElement} */ (
+        document.getElementById('clients')
+      )
+      /** @type {HTMLElement} */
+      const clientCount = /** @type {HTMLElement} */ (
+        document.getElementById('client-count')
+      )
+
+      /** @type {WebSocket | null} */
+      let ws = null
+      /** @type {Record<string, ClientData>} */
+      let clients = {}
+
+      /**
+       * Convert a 2-letter country code to a flag emoji
+       * @param {string | null} countryCode - ISO 3166-1 alpha-2 country code
+       * @returns {string} Flag emoji or globe
+       */
+      function countryToFlag(countryCode) {
+        if (!countryCode || countryCode.length !== 2) return '🌍'
+        const codePoints = countryCode
+          .toUpperCase()
+          .split('')
+          .map((char) => 127397 + char.charCodeAt(0))
+        return String.fromCodePoint(...codePoints)
+      }
+
+      /**
+       * Parse user agent string to a friendly device description
+       * @param {string | null} ua - User agent string
+       * @returns {string} Device description with emoji
+       */
+      function parseUserAgent(ua) {
+        if (!ua) return 'Unknown'
+        if (ua.includes('iPhone')) return '📱 iPhone'
+        if (ua.includes('iPad')) return '📱 iPad'
+        if (ua.includes('Android')) return '📱 Android'
+        if (ua.includes('Mac')) return '💻 Mac'
+        if (ua.includes('Windows')) return '💻 Windows'
+        if (ua.includes('Linux')) return '💻 Linux'
+        return '🖥️ Unknown'
+      }
+
+      /**
+       * Format a timestamp as a localized time string
+       * @param {number} ts - Unix timestamp in milliseconds
+       * @returns {string} Formatted time string
+       */
+      function formatTime(ts) {
+        const d = new Date(ts)
+        return d.toLocaleTimeString()
+      }
+
+      /**
+       * Render the clients table from current state
+       */
+      function renderClients() {
+        const list = Object.values(clients)
+        clientCount.textContent =
+          list.length +
+          ' client' +
+          (list.length !== 1 ? 's' : '') +
+          ' connected'
+
+        if (list.length === 0) {
+          clientsBody.innerHTML =
+            '<tr><td colspan="4" class="no-clients">No clients connected</td></tr>'
+          return
+        }
+
+        clientsBody.innerHTML = list
+          .map(
+            (c) => `
+          <tr id="client-${c.id}">
+            <td>${escapeHtml(c.name)}</td>
+            <td><span class="flag">${countryToFlag(c.country)}</span>${c.country || 'Unknown'}</td>
+            <td>${parseUserAgent(c.userAgent)}</td>
+            <td>${formatTime(c.connectedAt)}</td>
+          </tr>
+        `
+          )
+          .join('')
+      }
+
+      /**
+       * Escape HTML special characters to prevent XSS
+       * @param {string} str - String to escape
+       * @returns {string} Escaped HTML string
+       */
+      function escapeHtml(str) {
+        const div = document.createElement('div')
+        div.textContent = str
+        return div.innerHTML
+      }
+
+      /**
+       * Add a blink animation to a client row when ack received
+       * @param {string} id - Client ID
+       */
+      function blinkClient(id) {
+        const row = document.getElementById('client-' + id)
+        if (row) {
+          row.classList.add('ack')
+          setTimeout(() => row.classList.remove('ack'), 300)
+        }
+      }
+
+      /**
+       * Connect to the admin WebSocket endpoint
+       */
+      function connectWs() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+        ws = new WebSocket(proto + '//' + location.host + '/ws/admin')
+
+        ws.onmessage = (e) => {
+          /** @type {WsMessage} */
+          const msg = JSON.parse(e.data)
+          if (msg.type === 'clients' && msg.clients) {
+            clients = {}
+            for (const c of msg.clients) {
+              clients[c.id] = c
+            }
+            renderClients()
+          } else if (msg.type === 'join' && msg.client) {
+            clients[msg.client.id] = msg.client
+            renderClients()
+          } else if (msg.type === 'leave' && msg.id) {
+            delete clients[msg.id]
+            renderClients()
+          } else if (msg.type === 'ack' && msg.id) {
+            blinkClient(msg.id)
+          }
+        }
+
+        ws.onclose = () => {
+          result.textContent = 'Disconnected. Reconnecting...'
+          setTimeout(connectWs, 1000)
+        }
+
+        ws.onerror = () => {
+          if (ws) ws.close()
+        }
+
+        ws.onopen = () => {
+          result.textContent = ''
+        }
+      }
+
+      btn.addEventListener('click', () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'trigger' }))
+          result.textContent = 'Triggered!'
+          setTimeout(() => (result.textContent = ''), 1000)
+        } else {
+          result.textContent = 'Not connected'
+        }
+      })
+
+      connectWs()
+    </script>
+  </body>
+</html>
