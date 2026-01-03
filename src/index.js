@@ -31,6 +31,7 @@
  * @typedef {Object} WsMessage
  * @property {string} type - Message type
  * @property {string} [id] - Client ID for ack/leave messages
+ * @property {string} [targetId] - Target client ID for targeted trigger
  * @property {ClientData} [client] - Client data for join messages
  * @property {ClientData[]} [clients] - Client list for clients message
  */
@@ -185,6 +186,31 @@ export class ClickerRoom {
   }
 
   /**
+   * Send a message to a specific client by ID
+   * @param {string} targetId - The client ID to send to
+   * @param {WsMessage} msg - Message to send
+   */
+  sendToClient(targetId, msg) {
+    const sockets = this.ctx.getWebSockets()
+    const msgStr = JSON.stringify(msg)
+    for (const ws of sockets) {
+      /** @type {SocketAttachment | null} */
+      const data = ws.deserializeAttachment()
+      if (data && !data.isAdmin) {
+        const clientData = /** @type {ClientData} */ (data)
+        if (clientData.id === targetId) {
+          try {
+            ws.send(msgStr)
+          } catch (_e) {
+            // Ignore send errors
+          }
+          break
+        }
+      }
+    }
+  }
+
+  /**
    * Handle incoming WebSocket messages
    * @param {WebSocket} ws - The WebSocket that received the message
    * @param {string | ArrayBuffer} message - The message data
@@ -205,7 +231,11 @@ export class ClickerRoom {
     if (!msg) return
 
     if (data.isAdmin && msg.type === 'trigger') {
-      this.broadcastToClients({ type: 'click' })
+      if (msg.targetId) {
+        this.sendToClient(msg.targetId, { type: 'click' })
+      } else {
+        this.broadcastToClients({ type: 'click' })
+      }
     } else if (!data.isAdmin && msg.type === 'ack') {
       const clientData = /** @type {ClientData} */ (data)
       this.broadcastToAdmins({ type: 'ack', id: clientData.id })
@@ -239,31 +269,26 @@ export class ClickerRoom {
 }
 
 /**
- * Check if request has valid HTTP Basic Auth credentials
+ * Check if request has valid admin session cookie
  * @param {Request} request - The incoming request
  * @param {Env} env - Environment bindings
- * @returns {boolean} Whether auth is valid
+ * @returns {boolean} Whether cookie auth is valid
  */
-function checkAuth(request, env) {
-  const auth = request.headers.get('Authorization')
-  if (!auth || !auth.startsWith('Basic ')) {
-    return false
-  }
-  const encoded = auth.slice(6)
-  const decoded = atob(encoded)
-  const [user, pass] = decoded.split(':')
-  return user === 'admin' && pass === env.ADMIN_PASSWORD
+function checkCookieAuth(request, env) {
+  const cookie = request.headers.get('Cookie') || ''
+  const match = cookie.match(/(?:^|; )adminToken=([^;]+)/)
+  if (!match) return false
+  const expected = btoa(env.ADMIN_PASSWORD).replace(/[^a-zA-Z0-9]/g, '')
+  return match[1] === expected
 }
 
 /**
- * Create an unauthorized response requesting Basic Auth
- * @returns {Response} 401 response with WWW-Authenticate header
+ * Generate the admin auth cookie value
+ * @param {Env} env - Environment bindings
+ * @returns {string} Cookie value
  */
-function requireAuth() {
-  return new Response('Unauthorized', {
-    status: 401,
-    headers: { 'WWW-Authenticate': 'Basic realm="Clicker Admin"' },
-  })
+function generateAuthCookie(env) {
+  return btoa(env.ADMIN_PASSWORD).replace(/[^a-zA-Z0-9]/g, '')
 }
 
 /** @type {ExportedHandler<Env>} */
@@ -284,18 +309,41 @@ export default {
     }
 
     if (url.pathname === '/ws/admin') {
-      if (!checkAuth(request, env)) {
-        return requireAuth()
+      if (!checkCookieAuth(request, env)) {
+        return new Response('Unauthorized', { status: 401 })
       }
       const id = env.CLICKER_ROOM.idFromName('main')
       const stub = env.CLICKER_ROOM.get(id)
       return stub.fetch(request)
     }
 
-    if (url.pathname.startsWith('/admin')) {
-      if (!checkAuth(request, env)) {
-        return requireAuth()
+    if (url.pathname === '/admin/auth') {
+      if (request.method === 'GET') {
+        if (checkCookieAuth(request, env)) {
+          return new Response('OK', { status: 200 })
+        }
+        return new Response('Unauthorized', { status: 401 })
       }
+
+      if (request.method === 'POST') {
+        try {
+          /** @type {{ password?: string }} */
+          const body = await request.json()
+          if (body.password === env.ADMIN_PASSWORD) {
+            return new Response('OK', {
+              status: 200,
+              headers: {
+                'Set-Cookie': `adminToken=${generateAuthCookie(env)}; Path=/; HttpOnly; SameSite=Strict`,
+              },
+            })
+          }
+        } catch (_e) {
+          // Invalid JSON
+        }
+        return new Response('Unauthorized', { status: 401 })
+      }
+
+      return new Response('Method not allowed', { status: 405 })
     }
 
     return env.ASSETS.fetch(request)

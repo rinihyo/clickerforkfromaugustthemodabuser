@@ -15,25 +15,27 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 2rem;
+        padding: 1rem;
         font-family: system-ui, sans-serif;
         background: #111;
         color: #fff;
       }
       h1 {
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
+        font-size: 1.5rem;
       }
       #click {
-        width: 150px;
-        height: 150px;
-        font-size: 1.5rem;
+        width: 120px;
+        height: 120px;
+        font-size: 1.25rem;
         cursor: pointer;
         background: #ef4444;
         color: white;
         border: none;
         border-radius: 50%;
         transition: transform 0.1s;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
+        flex-shrink: 0;
       }
       #click:hover {
         background: #dc2626;
@@ -42,23 +44,34 @@
         transform: scale(0.95);
       }
       #result {
-        margin-bottom: 2rem;
-        font-size: 1.25rem;
+        margin-bottom: 1rem;
+        font-size: 1rem;
         min-height: 1.5em;
+      }
+      .table-wrapper {
+        width: 100%;
+        max-width: 900px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
       }
       table {
         border-collapse: collapse;
         width: 100%;
-        max-width: 900px;
+        min-width: 500px;
       }
       th,
       td {
         border: 1px solid #333;
-        padding: 0.75rem 1rem;
+        padding: 0.5rem;
         text-align: left;
+        white-space: nowrap;
       }
       th {
         background: #222;
+        font-size: 0.875rem;
+      }
+      td {
+        font-size: 0.875rem;
       }
       tr {
         transition: background 0.2s;
@@ -67,35 +80,125 @@
         background: #22c55e40;
       }
       .flag {
-        font-size: 1.5rem;
-        margin-right: 0.5rem;
+        font-size: 1.25rem;
+        margin-right: 0.25rem;
       }
       #client-count {
         color: #888;
-        margin-bottom: 1rem;
+        margin-bottom: 0.5rem;
+        font-size: 0.875rem;
       }
       .no-clients {
         color: #666;
         font-style: italic;
       }
+      .click-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 0.25rem;
+      }
+      .click-btn:hover {
+        background: #2563eb;
+      }
+      .click-btn:active {
+        transform: scale(0.95);
+      }
+      #login-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.9);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      #login-modal.hidden {
+        display: none;
+      }
+      #login-form {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+      }
+      #login-form h2 {
+        margin-bottom: 0.5rem;
+      }
+      #password-input {
+        padding: 0.75rem 1rem;
+        font-size: 1.25rem;
+        border: none;
+        border-radius: 0.5rem;
+        width: 250px;
+        text-align: center;
+      }
+      #login-btn {
+        padding: 0.75rem 2rem;
+        font-size: 1.25rem;
+        cursor: pointer;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 0.5rem;
+      }
+      #login-btn:hover {
+        background: #2563eb;
+      }
+      #login-error {
+        color: #ef4444;
+        min-height: 1.5em;
+      }
+      #main-content {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        width: 100%;
+      }
+      #main-content.visible {
+        display: flex;
+      }
     </style>
   </head>
   <body>
-    <h1>Clicker Admin</h1>
-    <button id="click">CLICK!</button>
-    <div id="result"></div>
-    <div id="client-count">0 clients connected</div>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Country</th>
-          <th>Device</th>
-          <th>Connected</th>
-        </tr>
-      </thead>
-      <tbody id="clients"></tbody>
-    </table>
+    <div id="login-modal">
+      <form id="login-form">
+        <h2>Admin Login</h2>
+        <input
+          type="password"
+          id="password-input"
+          placeholder="Password"
+          autocomplete="current-password"
+          required
+        />
+        <button type="submit" id="login-btn">Login</button>
+        <div id="login-error"></div>
+      </form>
+    </div>
+    <div id="main-content">
+      <h1>Clicker Admin</h1>
+      <button id="click">CLICK!</button>
+      <div id="result"></div>
+      <div id="client-count">0 clients connected</div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Country</th>
+              <th>Device</th>
+              <th>Time</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="clients"></tbody>
+        </table>
+      </div>
+    </div>
     <script>
       /**
        * @typedef {Object} ClientData
@@ -114,6 +217,26 @@
        * @property {ClientData[]} [clients] - Client list
        */
 
+      /** @type {HTMLDivElement} */
+      const loginModal = /** @type {HTMLDivElement} */ (
+        document.getElementById('login-modal')
+      )
+      /** @type {HTMLFormElement} */
+      const loginForm = /** @type {HTMLFormElement} */ (
+        document.getElementById('login-form')
+      )
+      /** @type {HTMLInputElement} */
+      const passwordInput = /** @type {HTMLInputElement} */ (
+        document.getElementById('password-input')
+      )
+      /** @type {HTMLElement} */
+      const loginError = /** @type {HTMLElement} */ (
+        document.getElementById('login-error')
+      )
+      /** @type {HTMLDivElement} */
+      const mainContent = /** @type {HTMLDivElement} */ (
+        document.getElementById('main-content')
+      )
       /** @type {HTMLButtonElement} */
       const btn = /** @type {HTMLButtonElement} */ (
         document.getElementById('click')
@@ -135,6 +258,54 @@
       let ws = null
       /** @type {Record<string, ClientData>} */
       let clients = {}
+
+      /**
+       * Attempt to login with password
+       * @param {string} password - The password to try
+       * @returns {Promise<boolean>} Whether login succeeded
+       */
+      async function tryLogin(password) {
+        try {
+          const res = await fetch('/admin/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password }),
+          })
+          return res.ok
+        } catch (_e) {
+          return false
+        }
+      }
+
+      /**
+       * Check if already authenticated
+       * @returns {Promise<boolean>} Whether already logged in
+       */
+      async function checkAuth() {
+        try {
+          const res = await fetch('/admin/auth')
+          return res.ok
+        } catch (_e) {
+          return false
+        }
+      }
+
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const password = passwordInput.value
+        if (!password) return
+
+        loginError.textContent = ''
+        const success = await tryLogin(password)
+        if (success) {
+          loginModal.classList.add('hidden')
+          mainContent.classList.add('visible')
+          connectWs()
+        } else {
+          loginError.textContent = 'Invalid password'
+          passwordInput.select()
+        }
+      })
 
       /**
        * Convert a 2-letter country code to a flag emoji
@@ -189,7 +360,7 @@
 
         if (list.length === 0) {
           clientsBody.innerHTML =
-            '<tr><td colspan="4" class="no-clients">No clients connected</td></tr>'
+            '<tr><td colspan="5" class="no-clients">No clients connected</td></tr>'
           return
         }
 
@@ -198,13 +369,23 @@
             (c) => `
           <tr id="client-${c.id}">
             <td>${escapeHtml(c.name)}</td>
-            <td><span class="flag">${countryToFlag(c.country)}</span>${c.country || 'Unknown'}</td>
+            <td><span class="flag">${countryToFlag(c.country)}</span>${c.country || '?'}</td>
             <td>${parseUserAgent(c.userAgent)}</td>
             <td>${formatTime(c.connectedAt)}</td>
+            <td><button class="click-btn" data-id="${c.id}">Click</button></td>
           </tr>
         `
           )
           .join('')
+
+        clientsBody.querySelectorAll('.click-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const id = btn.getAttribute('data-id')
+            if (id && ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'trigger', targetId: id }))
+            }
+          })
+        })
       }
 
       /**
@@ -281,7 +462,14 @@
         }
       })
 
-      connectWs()
+      // Check if already authenticated on load
+      checkAuth().then((ok) => {
+        if (ok) {
+          loginModal.classList.add('hidden')
+          mainContent.classList.add('visible')
+          connectWs()
+        }
+      })
     </script>
   </body>
 </html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Local Clicker</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, sans-serif;
+        background: #111;
+        color: #fff;
+      }
+      #click {
+        width: 250px;
+        height: 250px;
+        font-size: 2rem;
+        cursor: pointer;
+        background: #3b82f6;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        transition: transform 0.1s;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      #click:hover {
+        background: #2563eb;
+      }
+      #click:active {
+        transform: scale(0.95);
+      }
+      #flash {
+        position: fixed;
+        inset: 0;
+        background: #3b82f6;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.1s;
+      }
+      #flash.active {
+        opacity: 0.3;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="flash"></div>
+    <button id="click">CLICK!</button>
+    <script>
+      /** @type {HTMLButtonElement} */
+      const btn = /** @type {HTMLButtonElement} */ (
+        document.getElementById('click')
+      )
+      /** @type {HTMLElement} */
+      const flash = /** @type {HTMLElement} */ (
+        document.getElementById('flash')
+      )
+
+      /** @type {AudioContext | null} */
+      let audioCtx = null
+      /** @type {AudioBuffer | null} */
+      let clickBuffer = null
+
+      /**
+       * Initialize Web Audio API context and load click sound
+       * @returns {Promise<void>}
+       */
+      async function initAudio() {
+        if (audioCtx) return
+        audioCtx = new AudioContext({
+          latencyHint: 'interactive',
+        })
+        const response = await fetch('/click.mp3')
+        const arrayBuffer = await response.arrayBuffer()
+        clickBuffer = await audioCtx.decodeAudioData(arrayBuffer)
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume()
+        }
+      }
+
+      /**
+       * Play the click sound with minimal latency
+       */
+      function playClick() {
+        if (!audioCtx || !clickBuffer) return
+        const source = audioCtx.createBufferSource()
+        source.buffer = clickBuffer
+        source.connect(audioCtx.destination)
+        source.start(0)
+        flash.classList.add('active')
+        setTimeout(() => flash.classList.remove('active'), 100)
+      }
+
+      btn.addEventListener('click', async () => {
+        try {
+          await initAudio()
+          playClick()
+        } catch (err) {
+          btn.textContent =
+            'Error: ' + (err instanceof Error ? err.message : String(err))
+        }
+      })
+    </script>
+  </body>
+</html>
