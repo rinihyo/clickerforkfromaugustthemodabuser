@@ -7,6 +7,8 @@
  * @property {string | null} country - Country code from CF-IPCountry header
  * @property {string | null} userAgent - User agent string
  * @property {number} connectedAt - Timestamp when client connected
+ * @property {number | null} lastSeen - Timestamp when client was last seen (disconnected)
+ * @property {string | null} note - Admin note for this client
  * @property {boolean} isAdmin - Whether this is an admin connection
  * @property {boolean} [connected] - Whether client is currently connected (for admin view)
  */
@@ -37,6 +39,7 @@
  * @property {string} [targetId] - Target client ID for targeted trigger
  * @property {ClientData} [client] - Client data for join messages
  * @property {ClientData[]} [clients] - Client list for clients message
+ * @property {string | null} [note] - Note for noteUpdated messages
  */
 
 /**
@@ -64,25 +67,85 @@ export class ClickerRoom {
           name TEXT NOT NULL,
           country TEXT,
           userAgent TEXT,
-          connectedAt INTEGER NOT NULL
+          connectedAt INTEGER NOT NULL,
+          lastSeen INTEGER,
+          note TEXT
         )
       `)
+      const cols = ctx.storage.sql.exec(`PRAGMA table_info(clients)`)
+      const colNames = new Set()
+      for (const col of cols) {
+        colNames.add(col.name)
+      }
+      if (!colNames.has('lastSeen')) {
+        ctx.storage.sql.exec(`ALTER TABLE clients ADD COLUMN lastSeen INTEGER`)
+      }
+      if (!colNames.has('note')) {
+        ctx.storage.sql.exec(`ALTER TABLE clients ADD COLUMN note TEXT`)
+      }
     })
   }
 
   /**
-   * Save a client to the database
+   * Save a client to the database (preserves existing note)
    * @param {ClientData} client - Client data to save
    */
   saveClient(client) {
     this.ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO clients (id, name, country, userAgent, connectedAt)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO clients (id, name, country, userAgent, connectedAt, lastSeen, note)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         country = excluded.country,
+         userAgent = excluded.userAgent,
+         connectedAt = excluded.connectedAt,
+         lastSeen = NULL`,
       client.id,
       client.name,
       client.country,
       client.userAgent,
       client.connectedAt
+    )
+  }
+
+  /**
+   * Update lastSeen timestamp for a client
+   * @param {string} id - Client ID
+   */
+  updateLastSeen(id) {
+    this.ctx.storage.sql.exec(
+      `UPDATE clients SET lastSeen = ? WHERE id = ?`,
+      Date.now(),
+      id
+    )
+  }
+
+  /**
+   * Get lastSeen timestamp for a client
+   * @param {string} id - Client ID
+   * @returns {number | null} lastSeen timestamp or null
+   */
+  getLastSeen(id) {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT lastSeen FROM clients WHERE id = ?`,
+      id
+    )
+    for (const row of rows) {
+      return /** @type {number | null} */ (row.lastSeen)
+    }
+    return null
+  }
+
+  /**
+   * Set a note for a client
+   * @param {string} id - Client ID
+   * @param {string | null} note - Note to set
+   */
+  setClientNote(id, note) {
+    this.ctx.storage.sql.exec(
+      `UPDATE clients SET note = ? WHERE id = ?`,
+      note,
+      id
     )
   }
 
@@ -100,7 +163,7 @@ export class ClickerRoom {
    */
   getAllStoredClients() {
     const rows = this.ctx.storage.sql.exec(
-      `SELECT id, name, country, userAgent, connectedAt FROM clients ORDER BY connectedAt DESC`
+      `SELECT id, name, country, userAgent, connectedAt, lastSeen, note FROM clients ORDER BY connectedAt DESC`
     )
     /** @type {ClientData[]} */
     const clients = []
@@ -111,6 +174,8 @@ export class ClickerRoom {
         country: /** @type {string | null} */ (row.country),
         userAgent: /** @type {string | null} */ (row.userAgent),
         connectedAt: /** @type {number} */ (row.connectedAt),
+        lastSeen: /** @type {number | null} */ (row.lastSeen),
+        note: /** @type {string | null} */ (row.note),
         isAdmin: false,
       })
     }
@@ -135,6 +200,11 @@ export class ClickerRoom {
       const country = request.headers.get('CF-IPCountry') || null
       const userAgent = request.headers.get('User-Agent') || null
 
+      const lastSeen = this.getLastSeen(id)
+      const TWENTY_MINUTES = 20 * 60 * 1000
+      const shouldNotify =
+        !lastSeen || Date.now() - lastSeen > TWENTY_MINUTES
+
       const pair = new WebSocketPair()
       /** @type {ClientData} */
       const clientData = {
@@ -143,6 +213,8 @@ export class ClickerRoom {
         country,
         userAgent,
         connectedAt: Date.now(),
+        lastSeen: null,
+        note: null,
         isAdmin: false,
       }
 
@@ -156,7 +228,9 @@ export class ClickerRoom {
         client: { ...clientData, connected: true },
       })
 
-      this.notifySlack(clientData)
+      if (shouldNotify) {
+        this.notifySlack(clientData)
+      }
 
       return new Response(null, { status: 101, webSocket: pair[0] })
     }
@@ -190,6 +264,25 @@ export class ClickerRoom {
       this.deleteClient(clientId)
       this.broadcastToAdmins({ type: 'deleted', id: clientId })
       return new Response('OK', { status: 200 })
+    }
+
+    if (url.pathname === '/api/clients/note' && request.method === 'POST') {
+      try {
+        /** @type {{ id?: string, note?: string | null }} */
+        const body = await request.json()
+        if (!body.id) {
+          return new Response('Missing id', { status: 400 })
+        }
+        this.setClientNote(body.id, body.note ?? null)
+        this.broadcastToAdmins({
+          type: 'noteUpdated',
+          id: body.id,
+          note: body.note ?? null,
+        })
+        return new Response('OK', { status: 200 })
+      } catch (_e) {
+        return new Response('Invalid JSON', { status: 400 })
+      }
     }
 
     return new Response('Not found', { status: 404 })
@@ -376,6 +469,7 @@ export class ClickerRoom {
     const data = ws.deserializeAttachment()
     if (data && !data.isAdmin) {
       const clientData = /** @type {ClientData} */ (data)
+      this.updateLastSeen(clientData.id)
       this.broadcastToAdmins({ type: 'leave', id: clientData.id })
     }
   }
@@ -469,6 +563,15 @@ export default {
     }
 
     if (url.pathname === '/api/clients' && request.method === 'DELETE') {
+      if (!checkCookieAuth(request, env)) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      const id = env.CLICKER_ROOM.idFromName('main')
+      const stub = env.CLICKER_ROOM.get(id)
+      return stub.fetch(request)
+    }
+
+    if (url.pathname === '/api/clients/note' && request.method === 'POST') {
       if (!checkCookieAuth(request, env)) {
         return new Response('Unauthorized', { status: 401 })
       }

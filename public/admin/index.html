@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Clicker Admin</title>
     <style>
       * {
@@ -20,10 +20,6 @@
         background: #111;
         color: #fff;
       }
-      h1 {
-        margin-bottom: 1rem;
-        font-size: 1.5rem;
-      }
       #click {
         width: 120px;
         height: 120px;
@@ -36,6 +32,7 @@
         transition: transform 0.1s;
         margin-bottom: 1rem;
         flex-shrink: 0;
+        touch-action: manipulation;
       }
       #click:hover {
         background: #dc2626;
@@ -53,11 +50,11 @@
         max-width: 900px;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
+        container-type: inline-size;
       }
       table {
         border-collapse: collapse;
         width: 100%;
-        min-width: 500px;
       }
       th,
       td {
@@ -65,13 +62,10 @@
         padding: 0.5rem;
         text-align: left;
         white-space: nowrap;
+        font-size: 1rem;
       }
       th {
         background: #222;
-        font-size: 0.875rem;
-      }
-      td {
-        font-size: 0.875rem;
       }
       tr {
         transition: background 0.2s;
@@ -83,23 +77,28 @@
         font-size: 1.25rem;
         margin-right: 0.25rem;
       }
+      .separator {
+        margin: 0 0.7rem;
+        color: #777;
+      }
       #client-count {
         color: #888;
         margin-bottom: 0.5rem;
-        font-size: 0.875rem;
+        font-size: 1rem;
       }
       .no-clients {
         color: #666;
         font-style: italic;
       }
       .click-btn {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.75rem;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
         cursor: pointer;
         background: #3b82f6;
         color: white;
         border: none;
         border-radius: 0.25rem;
+        touch-action: manipulation;
       }
       .click-btn:hover {
         background: #2563eb;
@@ -108,14 +107,15 @@
         transform: scale(0.95);
       }
       .delete-btn {
-        padding: 0.25rem 0.5rem;
-        font-size: 0.75rem;
+        padding: 0.5rem 1rem;
+        font-size: 1rem;
         cursor: pointer;
         background: #ef4444;
         color: white;
         border: none;
         border-radius: 0.25rem;
         margin-left: 0.25rem;
+        touch-action: manipulation;
       }
       .delete-btn:hover {
         background: #dc2626;
@@ -125,6 +125,53 @@
       }
       tr.disconnected td {
         color: #888;
+      }
+      .note-cell {
+        padding: 0;
+      }
+      .note-input {
+        width: 100%;
+        height: 100%;
+        padding: 0.5rem;
+        font-size: 1rem;
+        background: transparent;
+        color: inherit;
+        border: none;
+      }
+      .note-input:focus {
+        outline: none;
+        background: #222;
+      }
+      .note-input::placeholder {
+        color: #666;
+      }
+      .last-seen {
+        color: #888;
+        font-size: 1rem;
+      }
+      @container (max-width: 600px) {
+        table, thead, tbody, tr, th, td {
+          display: block;
+        }
+        thead {
+          display: none;
+        }
+        tr {
+          border: 1px solid #333;
+          margin-bottom: 0.5rem;
+          background: #1a1a1a;
+        }
+        td {
+          border: none;
+          border-bottom: 1px solid #333;
+          white-space: normal;
+        }
+        td:last-child {
+          border-bottom: none;
+        }
+        .note-cell {
+          padding: 0;
+        }
       }
       #login-modal {
         position: fixed;
@@ -199,8 +246,7 @@
       </form>
     </div>
     <div id="main-content">
-      <h1>Clicker Admin</h1>
-      <button id="click">CLICK!</button>
+      <button id="click">Click!</button>
       <div id="result"></div>
       <div id="client-count">0 clients connected</div>
       <div class="table-wrapper">
@@ -208,9 +254,8 @@
           <thead>
             <tr>
               <th>Name</th>
-              <th>Country</th>
-              <th>Device</th>
-              <th>Time</th>
+              <th>Details</th>
+              <th>Note</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -226,6 +271,8 @@
        * @property {string | null} country - Country code
        * @property {string | null} userAgent - User agent string
        * @property {number} connectedAt - Connection timestamp
+       * @property {number | null} lastSeen - Last seen timestamp
+       * @property {string | null} note - Admin note
        * @property {boolean} [connected] - Whether currently connected
        */
 
@@ -235,6 +282,7 @@
        * @property {string} [id] - Client ID for ack/leave
        * @property {ClientData} [client] - Client data for join
        * @property {ClientData[]} [clients] - Client list
+       * @property {string | null} [note] - Note for noteUpdated
        */
 
       /** @type {HTMLDivElement} */
@@ -368,6 +416,36 @@
       }
 
       /**
+       * Format a timestamp as relative time ago
+       * @param {number | null} ts - Unix timestamp in milliseconds
+       * @returns {string} Relative time string
+       */
+      function formatTimeAgo(ts) {
+        if (!ts) return ''
+        const diff = Date.now() - ts
+        const mins = Math.floor(diff / 60000)
+        if (mins < 1) return 'just now'
+        if (mins < 60) return mins + 'm ago'
+        const hours = Math.floor(mins / 60)
+        if (hours < 24) return hours + 'h ago'
+        const days = Math.floor(hours / 24)
+        return days + 'd ago'
+      }
+
+      /**
+       * Save a note for a client
+       * @param {string} id - Client ID
+       * @param {string} note - Note text
+       */
+      async function saveNote(id, note) {
+        await fetch('/api/clients/note', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, note: note || null }),
+        })
+      }
+
+      /**
        * Render the clients table from current state
        */
       function renderClients() {
@@ -381,7 +459,7 @@
 
         if (list.length === 0) {
           clientsBody.innerHTML =
-            '<tr><td colspan="5" class="no-clients">No clients</td></tr>'
+            '<tr><td colspan="4" class="no-clients">No clients</td></tr>'
           return
         }
 
@@ -394,9 +472,8 @@
             (c) => `
           <tr id="client-${c.id}" class="${c.connected === false ? 'disconnected' : ''}">
             <td>${escapeHtml(c.name)}</td>
-            <td><span class="flag">${countryToFlag(c.country)}</span>${c.country || '?'}</td>
-            <td>${parseUserAgent(c.userAgent)}</td>
-            <td>${formatTime(c.connectedAt)}</td>
+            <td><span class="flag">${countryToFlag(c.country)}</span>${c.country || '?'} <span class="separator">·</span> ${parseUserAgent(c.userAgent)} <span class="separator">·</span> ${formatTime(c.connectedAt)}${c.connected === false && c.lastSeen ? ` <span class="separator">·</span> <span class="last-seen">Last: ${formatTimeAgo(c.lastSeen)}</span>` : ''}</td>
+            <td class="note-cell"><input class="note-input" type="text" data-id="${c.id}" value="${escapeHtml(c.note || '')}" placeholder="Add note..."></td>
             <td>
               ${c.connected !== false ? `<button class="click-btn" data-id="${c.id}">Click</button>` : ''}
               <button class="delete-btn" data-id="${c.id}">✕</button>
@@ -422,6 +499,21 @@
               await fetch('/api/clients?id=' + encodeURIComponent(id), {
                 method: 'DELETE',
               })
+            }
+          })
+        })
+
+        clientsBody.querySelectorAll('.note-input').forEach((input) => {
+          input.addEventListener('blur', async () => {
+            const id = input.getAttribute('data-id')
+            if (id) {
+              const noteInput = /** @type {HTMLInputElement} */ (input)
+              await saveNote(id, noteInput.value)
+            }
+          })
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              /** @type {HTMLInputElement} */ (input).blur()
             }
           })
         })
@@ -479,6 +571,10 @@
             renderClients()
           } else if (msg.type === 'ack' && msg.id) {
             blinkClient(msg.id)
+          } else if (msg.type === 'noteUpdated' && msg.id) {
+            if (clients[msg.id]) {
+              clients[msg.id].note = msg.note ?? null
+            }
           }
         }
 
