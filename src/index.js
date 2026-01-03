@@ -8,6 +8,7 @@
  * @property {string | null} userAgent - User agent string
  * @property {number} connectedAt - Timestamp when client connected
  * @property {boolean} isAdmin - Whether this is an admin connection
+ * @property {boolean} [connected] - Whether client is currently connected (for admin view)
  */
 
 /**
@@ -25,6 +26,8 @@
  * @property {DurableObjectNamespace} CLICKER_ROOM - Durable Object binding
  * @property {Fetcher} ASSETS - Static assets binding
  * @property {string} ADMIN_PASSWORD - Admin password from environment
+ * @property {string} SLACK_TOKEN - Slack bot token
+ * @property {string} SLACK_CHANNEL - Slack channel ID
  */
 
 /**
@@ -53,6 +56,65 @@ export class ClickerRoom {
   constructor(ctx, env) {
     this.ctx = ctx
     this.env = env
+
+    ctx.blockConcurrencyWhile(async () => {
+      ctx.storage.sql.exec(`
+        CREATE TABLE IF NOT EXISTS clients (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          country TEXT,
+          userAgent TEXT,
+          connectedAt INTEGER NOT NULL
+        )
+      `)
+    })
+  }
+
+  /**
+   * Save a client to the database
+   * @param {ClientData} client - Client data to save
+   */
+  saveClient(client) {
+    this.ctx.storage.sql.exec(
+      `INSERT OR REPLACE INTO clients (id, name, country, userAgent, connectedAt)
+       VALUES (?, ?, ?, ?, ?)`,
+      client.id,
+      client.name,
+      client.country,
+      client.userAgent,
+      client.connectedAt
+    )
+  }
+
+  /**
+   * Delete a client from the database
+   * @param {string} id - Client ID to delete
+   */
+  deleteClient(id) {
+    this.ctx.storage.sql.exec(`DELETE FROM clients WHERE id = ?`, id)
+  }
+
+  /**
+   * Get all clients from the database
+   * @returns {ClientData[]} Array of all stored clients
+   */
+  getAllStoredClients() {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT id, name, country, userAgent, connectedAt FROM clients ORDER BY connectedAt DESC`
+    )
+    /** @type {ClientData[]} */
+    const clients = []
+    for (const row of rows) {
+      clients.push({
+        id: /** @type {string} */ (row.id),
+        name: /** @type {string} */ (row.name),
+        country: /** @type {string | null} */ (row.country),
+        userAgent: /** @type {string | null} */ (row.userAgent),
+        connectedAt: /** @type {number} */ (row.connectedAt),
+        isAdmin: false,
+      })
+    }
+    return clients
   }
 
   /**
@@ -87,10 +149,14 @@ export class ClickerRoom {
       this.ctx.acceptWebSocket(pair[1])
       pair[1].serializeAttachment(clientData)
 
+      this.saveClient(clientData)
+
       this.broadcastToAdmins({
         type: 'join',
-        client: clientData,
+        client: { ...clientData, connected: true },
       })
+
+      this.notifySlack(clientData)
 
       return new Response(null, { status: 101, webSocket: pair[0] })
     }
@@ -110,39 +176,95 @@ export class ClickerRoom {
       this.ctx.acceptWebSocket(pair[1])
       pair[1].serializeAttachment(adminData)
 
-      const clients = this.getClientList()
+      const clients = this.getFullClientList()
       pair[1].send(JSON.stringify({ type: 'clients', clients }))
 
       return new Response(null, { status: 101, webSocket: pair[0] })
+    }
+
+    if (url.pathname === '/api/clients' && request.method === 'DELETE') {
+      const clientId = url.searchParams.get('id')
+      if (!clientId) {
+        return new Response('Missing id', { status: 400 })
+      }
+      this.deleteClient(clientId)
+      this.broadcastToAdmins({ type: 'deleted', id: clientId })
+      return new Response('OK', { status: 200 })
     }
 
     return new Response('Not found', { status: 404 })
   }
 
   /**
-   * Get list of all connected non-admin clients
-   * @returns {ClientData[]} Array of client data objects
+   * Send a Slack notification when a user connects
+   * @param {ClientData} client - The client data
    */
-  getClientList() {
+  notifySlack(client) {
+    const flag = client.country
+      ? String.fromCodePoint(
+          ...client.country
+            .toUpperCase()
+            .split('')
+            .map((c) => 127397 + c.charCodeAt(0))
+        )
+      : '🌍'
+    const device = client.userAgent?.includes('Mobile') ? '📱' : '💻'
+    const text = `${flag} ${device} *${client.name}* joined`
+
+    fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.env.SLACK_TOKEN}`,
+      },
+      body: JSON.stringify({
+        channel: this.env.SLACK_CHANNEL,
+        text,
+      }),
+    }).catch(() => {
+      // Ignore Slack errors
+    })
+  }
+
+  /**
+   * Get set of currently connected client IDs
+   * @returns {Set<string>} Set of connected client IDs
+   */
+  getConnectedClientIds() {
     const sockets = this.ctx.getWebSockets()
-    /** @type {ClientData[]} */
-    const clients = []
+    /** @type {Set<string>} */
+    const connectedIds = new Set()
     for (const ws of sockets) {
       /** @type {SocketAttachment | null} */
       const data = ws.deserializeAttachment()
       if (data && !data.isAdmin) {
         const clientData = /** @type {ClientData} */ (data)
-        clients.push({
-          id: clientData.id,
-          name: clientData.name,
-          country: clientData.country,
-          userAgent: clientData.userAgent,
-          connectedAt: clientData.connectedAt,
-          isAdmin: false,
-        })
+        connectedIds.add(clientData.id)
       }
     }
-    return clients
+    return connectedIds
+  }
+
+  /**
+   * Get full client list with connected status (connected first, then disconnected)
+   * @returns {ClientData[]} Array of client data objects with connected flag
+   */
+  getFullClientList() {
+    const connectedIds = this.getConnectedClientIds()
+    const allClients = this.getAllStoredClients()
+
+    const connected = []
+    const disconnected = []
+
+    for (const client of allClients) {
+      if (connectedIds.has(client.id)) {
+        connected.push({ ...client, connected: true })
+      } else {
+        disconnected.push({ ...client, connected: false })
+      }
+    }
+
+    return [...connected, ...disconnected]
   }
 
   /**
@@ -344,6 +466,22 @@ export default {
       }
 
       return new Response('Method not allowed', { status: 405 })
+    }
+
+    if (url.pathname === '/api/clients' && request.method === 'DELETE') {
+      if (!checkCookieAuth(request, env)) {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      const id = env.CLICKER_ROOM.idFromName('main')
+      const stub = env.CLICKER_ROOM.get(id)
+      return stub.fetch(request)
+    }
+
+    if (url.pathname === '/click.mp3') {
+      const response = await env.ASSETS.fetch(request)
+      const newResponse = new Response(response.body, response)
+      newResponse.headers.set('Access-Control-Allow-Origin', '*')
+      return newResponse
     }
 
     return env.ASSETS.fetch(request)

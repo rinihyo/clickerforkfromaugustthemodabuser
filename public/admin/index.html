@@ -107,6 +107,25 @@
       .click-btn:active {
         transform: scale(0.95);
       }
+      .delete-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+        cursor: pointer;
+        background: #ef4444;
+        color: white;
+        border: none;
+        border-radius: 0.25rem;
+        margin-left: 0.25rem;
+      }
+      .delete-btn:hover {
+        background: #dc2626;
+      }
+      tr.disconnected {
+        opacity: 0.5;
+      }
+      tr.disconnected td {
+        color: #888;
+      }
       #login-modal {
         position: fixed;
         inset: 0;
@@ -207,6 +226,7 @@
        * @property {string | null} country - Country code
        * @property {string | null} userAgent - User agent string
        * @property {number} connectedAt - Connection timestamp
+       * @property {boolean} [connected] - Whether currently connected
        */
 
       /**
@@ -352,27 +372,35 @@
        */
       function renderClients() {
         const list = Object.values(clients)
+        const connectedCount = list.filter((c) => c.connected !== false).length
         clientCount.textContent =
-          list.length +
+          connectedCount +
           ' client' +
-          (list.length !== 1 ? 's' : '') +
+          (connectedCount !== 1 ? 's' : '') +
           ' connected'
 
         if (list.length === 0) {
           clientsBody.innerHTML =
-            '<tr><td colspan="5" class="no-clients">No clients connected</td></tr>'
+            '<tr><td colspan="5" class="no-clients">No clients</td></tr>'
           return
         }
 
-        clientsBody.innerHTML = list
+        const connected = list.filter((c) => c.connected !== false)
+        const disconnected = list.filter((c) => c.connected === false)
+        const sorted = [...connected, ...disconnected]
+
+        clientsBody.innerHTML = sorted
           .map(
             (c) => `
-          <tr id="client-${c.id}">
+          <tr id="client-${c.id}" class="${c.connected === false ? 'disconnected' : ''}">
             <td>${escapeHtml(c.name)}</td>
             <td><span class="flag">${countryToFlag(c.country)}</span>${c.country || '?'}</td>
             <td>${parseUserAgent(c.userAgent)}</td>
             <td>${formatTime(c.connectedAt)}</td>
-            <td><button class="click-btn" data-id="${c.id}">Click</button></td>
+            <td>
+              ${c.connected !== false ? `<button class="click-btn" data-id="${c.id}">Click</button>` : ''}
+              <button class="delete-btn" data-id="${c.id}">✕</button>
+            </td>
           </tr>
         `
           )
@@ -383,6 +411,17 @@
             const id = btn.getAttribute('data-id')
             if (id && ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'trigger', targetId: id }))
+            }
+          })
+        })
+
+        clientsBody.querySelectorAll('.delete-btn').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id')
+            if (id) {
+              await fetch('/api/clients?id=' + encodeURIComponent(id), {
+                method: 'DELETE',
+              })
             }
           })
         })
@@ -431,6 +470,11 @@
             clients[msg.client.id] = msg.client
             renderClients()
           } else if (msg.type === 'leave' && msg.id) {
+            if (clients[msg.id]) {
+              clients[msg.id].connected = false
+            }
+            renderClients()
+          } else if (msg.type === 'deleted' && msg.id) {
             delete clients[msg.id]
             renderClients()
           } else if (msg.type === 'ack' && msg.id) {
