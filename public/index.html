@@ -28,13 +28,13 @@
         font-size: 1.5rem;
         margin-bottom: 2rem;
       }
-      #join-form {
+      #connect-form {
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 1rem;
       }
-      #join-form.hidden {
+      #connect-form.hidden {
         display: none;
       }
       #name-input {
@@ -45,7 +45,7 @@
         width: 250px;
         text-align: center;
       }
-      #join-btn {
+      #connect-btn {
         padding: 0.75rem 2rem;
         font-size: 1.25rem;
         cursor: pointer;
@@ -54,7 +54,7 @@
         border: none;
         border-radius: 0.5rem;
       }
-      #join-btn:hover {
+      #connect-btn:hover {
         background: #2563eb;
       }
       #ready {
@@ -75,8 +75,8 @@
   </head>
   <body>
     <div id="flash"></div>
-    <div id="status">Enter your name to join</div>
-    <form id="join-form">
+    <div id="status">Enter your name</div>
+    <form id="connect-form">
       <input
         type="text"
         id="name-input"
@@ -84,7 +84,7 @@
         autocomplete="off"
         required
       />
-      <button type="submit" id="join-btn">Join</button>
+      <button type="submit" id="connect-btn">Connect</button>
     </form>
     <script>
       /**
@@ -93,8 +93,8 @@
        */
 
       /** @type {HTMLFormElement} */
-      const joinForm = /** @type {HTMLFormElement} */ (
-        document.getElementById('join-form')
+      const connectForm = /** @type {HTMLFormElement} */ (
+        document.getElementById('connect-form')
       )
       /** @type {HTMLInputElement} */
       const nameInput = /** @type {HTMLInputElement} */ (
@@ -191,7 +191,7 @@
         }
       }
 
-      joinForm.addEventListener('submit', async (e) => {
+      connectForm.addEventListener('submit', async (e) => {
         e.preventDefault()
         const name = nameInput.value.trim()
         if (!name) return
@@ -200,7 +200,7 @@
           await initAudio()
           setCookie('userName', name, 365)
           enabled = true
-          joinForm.classList.add('hidden')
+          connectForm.classList.add('hidden')
           status.innerHTML = '<span id="ready">Ready :3</span>'
           connectWs(name)
         } catch (err) {
