@@ -3,9 +3,9 @@
   "main": "src/index.js",
   "compatibility_date": "2024-12-01",
   "assets": {
-    "directory": "./public",
+    "directory": "../client/dist",
     "binding": "ASSETS",
-    "run_worker_first": ["/click.mp3"]
+    "run_worker_first": ["/click.mp3"],
   },
   "routes": [
     {

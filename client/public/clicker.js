@@ -61,9 +61,7 @@
 
   function connect() {
     if (connected || !audioReady) return
-    const host = location.host
-    const name = username ? `${username} - ${host}` : host
-    const params = new URLSearchParams({ id: clientId, name })
+    const params = new URLSearchParams({ id: clientId })
     ws = new WebSocket(WS_URL + '?' + params)
 
     ws.onmessage = (e) => {
@@ -77,6 +75,16 @@
 
     ws.onopen = () => {
       connected = true
+      const host = location.host
+      const name = username ? `${username} - ${host}` : host
+      ws.send(
+        JSON.stringify({
+          type: 'identify',
+          name,
+          clientType: 'script',
+          userAgent: navigator.userAgent,
+        })
+      )
     }
 
     ws.onclose = () => {
@@ -113,9 +121,16 @@
     set(value) {
       username = value
       if (connected && ws && ws.readyState === WebSocket.OPEN) {
-        ws.close()
-        connected = false
-        setTimeout(connect, 100)
+        const host = location.host
+        const name = username ? `${username} - ${host}` : host
+        ws.send(
+          JSON.stringify({
+            type: 'identify',
+            name,
+            clientType: 'script',
+            userAgent: navigator.userAgent,
+          })
+        )
       }
     },
     configurable: true,

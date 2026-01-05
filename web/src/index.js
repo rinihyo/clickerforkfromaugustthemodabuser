@@ -6,17 +6,18 @@
  * @property {string} name - Display name of the client
  * @property {string | null} country - Country code from CF-IPCountry header
  * @property {string | null} userAgent - User agent string
+ * @property {string | null} type - Client type (web/desktop/script)
  * @property {number} connectedAt - Timestamp when client connected
  * @property {number | null} lastSeen - Timestamp when client was last seen (disconnected)
  * @property {string | null} note - Admin note for this client
- * @property {boolean} isAdmin - Whether this is an admin connection
+ * @property {false} isAdmin - Whether this is an admin connection
  * @property {boolean} [connected] - Whether client is currently connected (for admin view)
  */
 
 /**
  * @typedef {Object} AdminData
  * @property {string} id - Unique admin identifier
- * @property {boolean} isAdmin - Always true for admin connections
+ * @property {true} isAdmin - Always true for admin connections
  */
 
 /**
@@ -40,6 +41,9 @@
  * @property {ClientData} [client] - Client data for join messages
  * @property {ClientData[]} [clients] - Client list for clients message
  * @property {string | null} [note] - Note for noteUpdated messages
+ * @property {string} [name] - Name for identify messages
+ * @property {string} [userAgent] - User agent for identify messages
+ * @property {string} [clientType] - Client type for identify messages
  */
 
 /**
@@ -61,12 +65,15 @@ export class ClickerRoom {
     this.env = env
 
     ctx.blockConcurrencyWhile(async () => {
+      // Future changes to the schema must be properly migrated from previous versions
       ctx.storage.sql.exec(`
         CREATE TABLE IF NOT EXISTS clients (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
           country TEXT,
           userAgent TEXT,
+          browser TEXT,
+          type TEXT,
           connectedAt INTEGER NOT NULL,
           lastSeen INTEGER,
           note TEXT
@@ -83,6 +90,9 @@ export class ClickerRoom {
       if (!colNames.has('note')) {
         ctx.storage.sql.exec(`ALTER TABLE clients ADD COLUMN note TEXT`)
       }
+      if (!colNames.has('type')) {
+        ctx.storage.sql.exec(`ALTER TABLE clients ADD COLUMN type TEXT`)
+      }
     })
   }
 
@@ -92,18 +102,20 @@ export class ClickerRoom {
    */
   saveClient(client) {
     this.ctx.storage.sql.exec(
-      `INSERT INTO clients (id, name, country, userAgent, connectedAt, lastSeen, note)
-       VALUES (?, ?, ?, ?, ?, NULL, NULL)
+      `INSERT INTO clients (id, name, country, userAgent, type, connectedAt, lastSeen, note)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          country = excluded.country,
          userAgent = excluded.userAgent,
+         type = excluded.type,
          connectedAt = excluded.connectedAt,
          lastSeen = NULL`,
       client.id,
       client.name,
       client.country,
       client.userAgent,
+      client.type,
       client.connectedAt
     )
   }
@@ -163,7 +175,7 @@ export class ClickerRoom {
    */
   getAllStoredClients() {
     const rows = this.ctx.storage.sql.exec(
-      `SELECT id, name, country, userAgent, connectedAt, lastSeen, note FROM clients ORDER BY connectedAt DESC`
+      `SELECT id, name, country, userAgent, type, connectedAt, lastSeen, note FROM clients ORDER BY connectedAt DESC`
     )
     /** @type {ClientData[]} */
     const clients = []
@@ -173,6 +185,7 @@ export class ClickerRoom {
         name: /** @type {string} */ (row.name),
         country: /** @type {string | null} */ (row.country),
         userAgent: /** @type {string | null} */ (row.userAgent),
+        type: /** @type {string | null} */ (row.type),
         connectedAt: /** @type {number} */ (row.connectedAt),
         lastSeen: /** @type {number | null} */ (row.lastSeen),
         note: /** @type {string | null} */ (row.note),
@@ -196,22 +209,17 @@ export class ClickerRoom {
       }
 
       const id = url.searchParams.get('id') || 'unknown'
-      const name = url.searchParams.get('name') || 'Anonymous'
       const country = request.headers.get('CF-IPCountry') || null
       const userAgent = request.headers.get('User-Agent') || null
-
-      const lastSeen = this.getLastSeen(id)
-      const TWENTY_MINUTES = 20 * 60 * 1000
-      const shouldNotify =
-        !lastSeen || Date.now() - lastSeen > TWENTY_MINUTES
 
       const pair = new WebSocketPair()
       /** @type {ClientData} */
       const clientData = {
         id,
-        name,
+        name: 'Anonymous',
         country,
         userAgent,
+        type: null,
         connectedAt: Date.now(),
         lastSeen: null,
         note: null,
@@ -221,16 +229,12 @@ export class ClickerRoom {
       this.ctx.acceptWebSocket(pair[1])
       pair[1].serializeAttachment(clientData)
 
+      // Save the initial anonymous connection so it is tracked and visible to admins immediately.
       this.saveClient(clientData)
-
       this.broadcastToAdmins({
         type: 'join',
         client: { ...clientData, connected: true },
       })
-
-      if (shouldNotify) {
-        this.notifySlack(clientData)
-      }
 
       return new Response(null, { status: 101, webSocket: pair[0] })
     }
@@ -451,9 +455,30 @@ export class ClickerRoom {
       } else {
         this.broadcastToClients({ type: 'click' })
       }
-    } else if (!data.isAdmin && msg.type === 'ack') {
-      const clientData = /** @type {ClientData} */ (data)
-      this.broadcastToAdmins({ type: 'ack', id: clientData.id })
+    } else if (!data.isAdmin) {
+      if (msg.type === 'ack') {
+        const clientData = /** @type {ClientData} */ (data)
+        this.broadcastToAdmins({ type: 'ack', id: clientData.id })
+      } else if (msg.type === 'identify') {
+        const clientData = /** @type {ClientData} */ (data)
+        if (msg.name) clientData.name = msg.name
+        if (msg.userAgent) clientData.userAgent = msg.userAgent
+        if (msg.clientType) clientData.type = msg.clientType
+
+        ws.serializeAttachment(clientData)
+        this.saveClient(clientData)
+        this.broadcastToAdmins({
+          type: 'join',
+          client: { ...clientData, connected: true },
+        })
+
+        const lastSeen = this.getLastSeen(clientData.id)
+        const TWENTY_MINUTES = 20 * 60 * 1000
+        const shouldNotify = !lastSeen || Date.now() - lastSeen > TWENTY_MINUTES
+        if (shouldNotify) {
+          this.notifySlack(clientData)
+        }
+      }
     }
   }
 
@@ -507,6 +532,28 @@ function generateAuthCookie(env) {
   return btoa(env.ADMIN_PASSWORD).replace(/[^a-zA-Z0-9]/g, '')
 }
 
+/**
+ * Get CORS headers if origin is allowed
+ * @param {Request} request
+ * @returns {HeadersInit}
+ */
+function getCorsHeaders(request) {
+  const origin = request.headers.get('Origin')
+  if (
+    origin &&
+    (origin.startsWith('http://localhost:') ||
+      origin.startsWith('http://127.0.0.1:'))
+  ) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Cookie',
+      'Access-Control-Allow-Credentials': 'true',
+    }
+  }
+  return {}
+}
+
 /** @type {ExportedHandler<Env>} */
 export default {
   /**
@@ -516,7 +563,14 @@ export default {
    * @returns {Promise<Response>} The response
    */
   async fetch(request, env) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: getCorsHeaders(request),
+      })
+    }
+
     const url = new URL(request.url)
+    const corsHeaders = getCorsHeaders(request)
 
     if (url.pathname === '/ws') {
       const id = env.CLICKER_ROOM.idFromName('main')
@@ -526,7 +580,10 @@ export default {
 
     if (url.pathname === '/ws/admin') {
       if (!checkCookieAuth(request, env)) {
-        return new Response('Unauthorized', { status: 401 })
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: corsHeaders,
+        })
       }
       const id = env.CLICKER_ROOM.idFromName('main')
       const stub = env.CLICKER_ROOM.get(id)
@@ -536,9 +593,12 @@ export default {
     if (url.pathname === '/admin/auth') {
       if (request.method === 'GET') {
         if (checkCookieAuth(request, env)) {
-          return new Response('OK', { status: 200 })
+          return new Response('OK', { status: 200, headers: corsHeaders })
         }
-        return new Response('Unauthorized', { status: 401 })
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: corsHeaders,
+        })
       }
 
       if (request.method === 'POST') {
@@ -550,34 +610,57 @@ export default {
               status: 200,
               headers: {
                 'Set-Cookie': `adminToken=${generateAuthCookie(env)}; Path=/; HttpOnly; SameSite=Strict`,
+                ...corsHeaders,
               },
             })
           }
         } catch (_e) {
           // Invalid JSON
         }
-        return new Response('Unauthorized', { status: 401 })
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: corsHeaders,
+        })
       }
 
-      return new Response('Method not allowed', { status: 405 })
+      return new Response('Method not allowed', {
+        status: 405,
+        headers: corsHeaders,
+      })
     }
 
     if (url.pathname === '/api/clients' && request.method === 'DELETE') {
       if (!checkCookieAuth(request, env)) {
-        return new Response('Unauthorized', { status: 401 })
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: corsHeaders,
+        })
       }
       const id = env.CLICKER_ROOM.idFromName('main')
       const stub = env.CLICKER_ROOM.get(id)
-      return stub.fetch(request)
+      const response = await stub.fetch(request)
+      const newResponse = new Response(response.body, response)
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        newResponse.headers.set(key, value)
+      }
+      return newResponse
     }
 
     if (url.pathname === '/api/clients/note' && request.method === 'POST') {
       if (!checkCookieAuth(request, env)) {
-        return new Response('Unauthorized', { status: 401 })
+        return new Response('Unauthorized', {
+          status: 401,
+          headers: corsHeaders,
+        })
       }
       const id = env.CLICKER_ROOM.idFromName('main')
       const stub = env.CLICKER_ROOM.get(id)
-      return stub.fetch(request)
+      const response = await stub.fetch(request)
+      const newResponse = new Response(response.body, response)
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        newResponse.headers.set(key, value)
+      }
+      return newResponse
     }
 
     if (url.pathname === '/click.mp3') {
