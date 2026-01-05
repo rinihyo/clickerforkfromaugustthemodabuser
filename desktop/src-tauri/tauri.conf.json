@@ -7,7 +7,7 @@
     "beforeDevCommand": "cd ../client && bun run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "cd ../client && bun run build",
-    "frontendDist": "../client/dist"
+    "frontendDist": "../../client/dist"
   },
   "app": {
     "withGlobalTauri": true,
