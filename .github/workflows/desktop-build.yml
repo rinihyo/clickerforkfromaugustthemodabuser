@@ -1,0 +1,82 @@
+name: Desktop Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            os: 'macos-latest'
+          - platform: 'windows-latest'
+            os: 'windows-latest'
+          - platform: 'ubuntu-latest'
+            os: 'ubuntu-22.04'
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.0-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build Tauri App
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd desktop
+          bun run tauri build
+
+      - name: Get version
+        shell: bash
+        run: |
+          VERSION=$(jq -r .version desktop/package.json | tr -d '\r')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Rename Artifacts
+        shell: bash
+        run: |
+          mkdir artifacts
+
+          # macOS
+          if [ "${{ matrix.os }}" == "macos-latest" ]; then
+            find desktop/src-tauri/target/release/bundle/dmg -name "*.dmg" -exec cp {} artifacts/clicker-${{ env.VERSION }}.dmg \;
+          fi
+
+          # Windows
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            find desktop/src-tauri/target/release/bundle/nsis -name "*.exe" -exec cp {} artifacts/clicker-${{ env.VERSION }}.exe \; || true
+            find desktop/src-tauri/target/release/bundle/msi -name "*.msi" -exec cp {} artifacts/clicker-${{ env.VERSION }}.msi \; || true
+          fi
+
+          # Linux
+          if [ "${{ matrix.os }}" == "ubuntu-22.04" ]; then
+            find desktop/src-tauri/target/release/bundle/appimage -name "*.AppImage" -exec cp {} artifacts/clicker-${{ env.VERSION }}.AppImage \; || true
+            find desktop/src-tauri/target/release/bundle/deb -name "*.deb" -exec cp {} artifacts/clicker-${{ env.VERSION }}.deb \; || true
+          fi
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: clicker-${{ matrix.platform }}
+          path: artifacts/*

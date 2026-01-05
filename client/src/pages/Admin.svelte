@@ -65,6 +65,7 @@
       } else if (msg.type === 'leave' && msg.id) {
         if (clients[msg.id]) {
           clients[msg.id].connected = false
+          clients[msg.id].lastSeen = Date.now()
         }
       } else if (msg.type === 'deleted' && msg.id) {
         delete clients[msg.id]
@@ -316,7 +317,7 @@
     flex-direction: column;
     align-items: center;
     padding: 1rem;
-    width: 100%;
+    width: 100vw;
     min-height: 100vh;
   }
   .trigger-btn {
@@ -348,19 +349,15 @@
   }
 
   .clients-grid {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 1rem;
     width: 100%;
-    max-width: 1200px;
-    justify-content: center;
   }
 
   .client-card {
     background: #222;
     padding: 1rem;
-    flex: 1 1 280px;
-    max-width: 100%;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;

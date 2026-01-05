@@ -21,7 +21,15 @@ bun run dev:client
 
 ### Fullstack
 
-Runs the frontend with local Miniflare worker backend on [`localhost:1420`](http://localhost:1420), watching for changes.
+Runs the frontend with local Miniflare worker backend on [`localhost:1420`](http://localhost:1420).
+
+First, start the client build watcher in one terminal:
+
+```bash
+bun run watch:client
+```
+
+Then, run the web backend in another terminal:
 
 ```bash
 bun run dev:web

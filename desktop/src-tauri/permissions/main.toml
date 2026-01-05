@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-get-username"
+description = "Allows the get_username command"
+commands.allow = ["get_username"]

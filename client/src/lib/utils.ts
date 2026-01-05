@@ -32,6 +32,10 @@ export function parseUserAgent(ua: string | null): string {
     icon = '🕶️'
   }
 
+  if (!os.name && !browser.name) {
+    return `❓ ${ua}`
+  }
+
   const osName = os.name || 'Unknown'
   const osVersion = os.version
   const browserName = browser.name

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { isTauri, getWsUrl } from '$lib/platform'
+  import { isTauri, getWsUrl, getOsUsername } from '$lib/platform'
   import { initAudio, playClick, isAudioReady } from '$lib/audio'
   import { getClientId, getUsername, setUsername } from '$lib/storage'
   import Flash from '$lib/Flash.svelte'
@@ -119,6 +119,26 @@
 
       if (isDesktop) {
         tryConnect()
+
+        if (!savedName) {
+          getOsUsername().then((osUsername) => {
+            if (osUsername) {
+              username = osUsername
+              nameInput = osUsername
+              setUsername(osUsername)
+              if (connected && ws) {
+                ws.send(
+                  JSON.stringify({
+                    type: 'identify',
+                    name: username,
+                    clientType: 'desktop',
+                    userAgent: navigator.userAgent,
+                  }),
+                )
+              }
+            }
+          })
+        }
       } else {
         status = 'Click anywhere to start'
         const handler = () => {
@@ -150,8 +170,12 @@
   </form>
 {:else if !requireName}
   <form class="name-form" onsubmit={(e) => { e.preventDefault(); handleNameChange() }}>
-    <input type="text" bind:value={nameInput} placeholder="Your name" />
-    <button type="submit">Save</button>
+    <input
+      type="text"
+      bind:value={nameInput}
+      placeholder="Your name"
+      onblur={handleNameChange}
+    />
   </form>
 {/if}
 
@@ -170,10 +194,6 @@
     gap: 12px;
     margin-bottom: 1rem;
   }
-  .name-form {
-    flex-direction: row;
-    gap: 8px;
-  }
   input {
     padding: 10px 14px;
     font-size: 1.1rem;
@@ -181,9 +201,6 @@
     border-radius: 6px;
     width: 220px;
     text-align: center;
-  }
-  .name-form input {
-    width: 180px;
   }
   button {
     padding: 10px 24px;
@@ -196,9 +213,6 @@
   }
   button:hover {
     background: #2563eb;
-  }
-  .name-form button {
-    padding: 8px 16px;
   }
   .hint {
     font-size: 0.85rem;

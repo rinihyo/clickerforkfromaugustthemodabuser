@@ -10,6 +10,17 @@ export function isTauri(): boolean {
   return !!(window.__TAURI__ || window.__TAURI_INTERNALS__)
 }
 
+export async function getOsUsername(): Promise<string | null> {
+  if (!isTauri()) return null
+  try {
+    // @ts-ignore
+    return await window.__TAURI__?.core.invoke('get_username')
+  } catch (e) {
+    console.error('Failed to get username:', e)
+    return null
+  }
+}
+
 const PROD_HOST = 'clicker.jer.app'
 
 export function getWsUrl(clientId: string): string {
