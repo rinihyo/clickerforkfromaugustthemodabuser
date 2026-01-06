@@ -1,5 +1,29 @@
 # Clicker :3
 
+## Setup
+
+Access the web client at [clicker.jer.app](https://clicker.jer.app).
+
+Desktop builds are on [GitHub Releases](https://github.com/jeremy46231/clicker/releases/tag/nightly), built via Actions from the `main` branch:
+
+- [macOS (dmg)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.dmg)
+- [Windows (exe)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.exe)
+- [Windows (msi)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.msi)
+- [Linux (AppImage)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.AppImage)
+- [Linux (deb)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.deb)
+
+Add the following line of JavaScript or HTML to your site to embed a clicker client:
+
+```js
+import('https://clicker.jer.app/clicker.js')
+```
+
+```html
+<script src="https://clicker.jer.app/clicker.js"></script>
+```
+
+Optionally, at any time (before or after loading the script), set `window._username` to any useful display name to identify the user.
+
 ## Structure
 
 ```

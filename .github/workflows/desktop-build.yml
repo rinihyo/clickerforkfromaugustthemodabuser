@@ -5,17 +5,20 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'macos-latest'
+          - platform: 'macos'
             os: 'macos-latest'
-          - platform: 'windows-latest'
+          - platform: 'windows'
             os: 'windows-latest'
-          - platform: 'ubuntu-latest'
+          - platform: 'ubuntu'
             os: 'ubuntu-22.04'
 
     runs-on: ${{ matrix.os }}
@@ -60,19 +63,36 @@ jobs:
 
           # macOS
           if [ "${{ matrix.os }}" == "macos-latest" ]; then
-            find desktop/src-tauri/target/release/bundle/dmg -name "*.dmg" -exec cp {} artifacts/clicker-${{ env.VERSION }}.dmg \;
+            DMG=$(find desktop/src-tauri/target/release/bundle/dmg -name "*.dmg" -print -quit)
+            if [ -n "$DMG" ]; then
+              cp "$DMG" artifacts/clicker.dmg
+            fi
           fi
 
           # Windows
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            find desktop/src-tauri/target/release/bundle/nsis -name "*.exe" -exec cp {} artifacts/clicker-${{ env.VERSION }}.exe \; || true
-            find desktop/src-tauri/target/release/bundle/msi -name "*.msi" -exec cp {} artifacts/clicker-${{ env.VERSION }}.msi \; || true
+            EXE=$(find desktop/src-tauri/target/release/bundle/nsis -name "*.exe" -print -quit)
+            if [ -n "$EXE" ]; then
+              cp "$EXE" artifacts/clicker.exe
+            fi
+
+            MSI=$(find desktop/src-tauri/target/release/bundle/msi -name "*.msi" -print -quit)
+            if [ -n "$MSI" ]; then
+              cp "$MSI" artifacts/clicker.msi
+            fi
           fi
 
           # Linux
           if [ "${{ matrix.os }}" == "ubuntu-22.04" ]; then
-            find desktop/src-tauri/target/release/bundle/appimage -name "*.AppImage" -exec cp {} artifacts/clicker-${{ env.VERSION }}.AppImage \; || true
-            find desktop/src-tauri/target/release/bundle/deb -name "*.deb" -exec cp {} artifacts/clicker-${{ env.VERSION }}.deb \; || true
+            APPIMAGE=$(find desktop/src-tauri/target/release/bundle/appimage -name "*.AppImage" -print -quit)
+            if [ -n "$APPIMAGE" ]; then
+              cp "$APPIMAGE" artifacts/clicker.AppImage
+            fi
+
+            DEB=$(find desktop/src-tauri/target/release/bundle/deb -name "*.deb" -print -quit)
+            if [ -n "$DEB" ]; then
+              cp "$DEB" artifacts/clicker.deb
+            fi
           fi
 
       - name: Upload Artifacts
@@ -80,3 +100,30 @@ jobs:
         with:
           name: clicker-${{ matrix.platform }}
           path: artifacts/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloads
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find downloads -type f -name "clicker.*" -exec cp {} release/ \;
+
+      - name: Publish nightly release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: nightly
+          name: Nightly Desktop Build
+          makeLatest: true
+          draft: false
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: release/*
+          token: ${{ secrets.GITHUB_TOKEN }}
