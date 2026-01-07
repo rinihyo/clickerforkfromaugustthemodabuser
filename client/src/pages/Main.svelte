@@ -40,6 +40,8 @@
         if (msg.type === 'click') {
           if (playClick()) flash()
           ws?.send(JSON.stringify({ type: 'ack' }))
+        } else if (msg.type === 'reload') {
+          location.reload()
         }
       } catch {}
     }

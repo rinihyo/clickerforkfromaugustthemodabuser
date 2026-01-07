@@ -116,6 +116,12 @@
     }
   }
 
+  function reloadClient(id: string) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'reload', targetId: id }))
+    }
+  }
+
   async function deleteClient(id: string) {
     await fetch(`${apiBase}/api/clients?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -203,16 +209,18 @@
 
           <!-- Row 2: Note -->
           <div class="row note-row">
-            <input
-              class="note-input"
-              type="text"
-              value={client.note || ''}
-              placeholder="Add note..."
-              onblur={(e) => saveNote(client.id, (e.target as HTMLInputElement).value)}
-              onkeydown={(e) => {
-                if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-              }}
-            />
+            {#key client.note}
+              <input
+                class="note-input"
+                type="text"
+                value={client.note || ''}
+                placeholder="Add note..."
+                onblur={(e) => saveNote(client.id, (e.target as HTMLInputElement).value)}
+                onkeydown={(e) => {
+                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                }}
+              />
+            {/key}
           </div>
 
           <!-- Row 3: Type, Time -->
@@ -249,6 +257,11 @@
               <button class="action-btn click-btn" onclick={() => triggerClient(client.id)}
                 >Click</button
               >
+              {#if client.type === 'desktop'}
+                <button class="action-btn reload-btn" onclick={() => reloadClient(client.id)}
+                  >Reload</button
+                >
+              {/if}
             {/if}
             <button class="action-btn delete-btn" onclick={() => deleteClient(client.id)}
               >Delete</button
@@ -479,6 +492,11 @@
 
   .click-btn {
     background: #3b82f6;
+    color: white;
+  }
+
+  .reload-btn {
+    background: #f59e0b;
     color: white;
   }
 

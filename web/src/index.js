@@ -162,6 +162,22 @@ export class ClickerRoom {
   }
 
   /**
+   * Get a note for a client
+   * @param {string} id - Client ID
+   * @returns {string | null} The note or null
+   */
+  getClientNote(id) {
+    const rows = this.ctx.storage.sql.exec(
+      `SELECT note FROM clients WHERE id = ?`,
+      id
+    )
+    for (const row of rows) {
+      return /** @type {string | null} */ (row.note)
+    }
+    return null
+  }
+
+  /**
    * Delete a client from the database
    * @param {string} id - Client ID to delete
    */
@@ -213,6 +229,10 @@ export class ClickerRoom {
       const userAgent = request.headers.get('User-Agent') || null
 
       const pair = new WebSocketPair()
+
+      // Check if client already exists to preserve their note
+      const existingNote = this.getClientNote(id)
+
       /** @type {ClientData} */
       const clientData = {
         id,
@@ -222,7 +242,7 @@ export class ClickerRoom {
         type: null,
         connectedAt: Date.now(),
         lastSeen: null,
-        note: null,
+        note: existingNote,
         isAdmin: false,
       }
 
@@ -305,8 +325,11 @@ export class ClickerRoom {
             .map((c) => 127397 + c.charCodeAt(0))
         )
       : '🌍'
-    const device = client.userAgent?.includes('Mobile') ? '📱' : '💻'
-    const text = `${flag} ${device} *${client.name}* joined`
+    const typeEmoji =
+      client.type === 'desktop' ? '🖥️' : client.type === 'script' ? '🤖' : '🌐'
+    const text = `${flag} ${typeEmoji} *${client.name}*${
+      client.note ? ` (${client.note})` : ''
+    } joined`
 
     fetch('https://slack.com/api/chat.postMessage', {
       method: 'POST',
@@ -340,6 +363,25 @@ export class ClickerRoom {
       }
     }
     return connectedIds
+  }
+
+  /**
+   * Count active WebSocket connections for a specific client ID
+   * @param {string} id - Client ID to count
+   * @returns {number} Number of active connections
+   */
+  countClientConnections(id) {
+    const sockets = this.ctx.getWebSockets()
+    let count = 0
+    for (const ws of sockets) {
+      /** @type {SocketAttachment | null} */
+      const data = ws.deserializeAttachment()
+      if (data && !data.isAdmin) {
+        const clientData = /** @type {ClientData} */ (data)
+        if (clientData.id === id) count++
+      }
+    }
+    return count
   }
 
   /**
@@ -455,6 +497,12 @@ export class ClickerRoom {
       } else {
         this.broadcastToClients({ type: 'click' })
       }
+    } else if (data.isAdmin && msg.type === 'reload') {
+      if (msg.targetId) {
+        this.sendToClient(msg.targetId, { type: 'reload' })
+      } else {
+        this.broadcastToClients({ type: 'reload' })
+      }
     } else if (!data.isAdmin) {
       if (msg.type === 'ack') {
         const clientData = /** @type {ClientData} */ (data)
@@ -465,6 +513,9 @@ export class ClickerRoom {
         if (msg.userAgent) clientData.userAgent = msg.userAgent
         if (msg.clientType) clientData.type = msg.clientType
 
+        const lastSeen = this.getLastSeen(clientData.id)
+        const existingConnections = this.countClientConnections(clientData.id)
+
         ws.serializeAttachment(clientData)
         this.saveClient(clientData)
         this.broadcastToAdmins({
@@ -472,9 +523,11 @@ export class ClickerRoom {
           client: { ...clientData, connected: true },
         })
 
-        const lastSeen = this.getLastSeen(clientData.id)
-        const TWENTY_MINUTES = 20 * 60 * 1000
-        const shouldNotify = !lastSeen || Date.now() - lastSeen > TWENTY_MINUTES
+        const isFirstConnection = existingConnections === 0
+        const offlineNotifyTime = 20 * 60 * 1000
+        const shouldNotify =
+          isFirstConnection &&
+          (!lastSeen || Date.now() - lastSeen > offlineNotifyTime)
         if (shouldNotify) {
           this.notifySlack(clientData)
         }
@@ -494,8 +547,11 @@ export class ClickerRoom {
     const data = ws.deserializeAttachment()
     if (data && !data.isAdmin) {
       const clientData = /** @type {ClientData} */ (data)
-      this.updateLastSeen(clientData.id)
-      this.broadcastToAdmins({ type: 'leave', id: clientData.id })
+      const remainingConnections = this.countClientConnections(clientData.id)
+      if (remainingConnections === 1) {
+        this.updateLastSeen(clientData.id)
+        this.broadcastToAdmins({ type: 'leave', id: clientData.id })
+      }
     }
   }
 
@@ -609,7 +665,9 @@ export default {
             return new Response('OK', {
               status: 200,
               headers: {
-                'Set-Cookie': `adminToken=${generateAuthCookie(env)}; Path=/; HttpOnly; SameSite=Strict`,
+                'Set-Cookie': `adminToken=${generateAuthCookie(
+                  env
+                )}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`,
                 ...corsHeaders,
               },
             })

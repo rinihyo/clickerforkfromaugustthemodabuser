@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "clicker-desktop",
+  "productName": "clicker",
   "version": "0.1.0",
   "identifier": "app.jer.clicker",
   "build": {
     "beforeDevCommand": "cd ../client && bun run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "cd ../client && bun run build",
-    "frontendDist": "../../client/dist"
+    "beforeBuildCommand": "",
+    "frontendDist": "https://clicker.jer.app"
   },
   "app": {
     "withGlobalTauri": true,

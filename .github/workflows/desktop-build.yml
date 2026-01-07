@@ -3,6 +3,9 @@ name: Desktop Build
 on:
   push:
     branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-build.yml'
   workflow_dispatch:
 
 permissions:

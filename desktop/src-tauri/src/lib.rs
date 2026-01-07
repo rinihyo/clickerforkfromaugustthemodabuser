@@ -3,6 +3,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
+use tauri_plugin_autostart::MacosLauncher;
 
 #[tauri::command]
 fn get_username() -> String {
@@ -12,11 +13,22 @@ fn get_username() -> String {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ))
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![get_username])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // Enable autostart on first run
+            use tauri_plugin_autostart::ManagerExt;
+            let autostart_manager = app.autolaunch();
+            if let Err(err) = autostart_manager.enable() {
+                eprintln!("Failed to enable autostart: {}", err);
+            }
 
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&quit_i])?;

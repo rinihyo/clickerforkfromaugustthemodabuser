@@ -6,11 +6,12 @@ Access the web client at [clicker.jer.app](https://clicker.jer.app).
 
 Desktop builds are on [GitHub Releases](https://github.com/jeremy46231/clicker/releases/tag/nightly), built via Actions from the `main` branch:
 
-- [macOS (dmg)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.dmg)
-- [Windows (exe)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.exe)
-- [Windows (msi)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.msi)
-- [Linux (AppImage)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.AppImage)
-- [Linux (deb)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.deb)
+- [Windows (portable `.exe`)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.exe)
+- [Windows (`.msi` installer)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.msi)
+- [macOS (`.dmg`)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.dmg)
+  - To make MacOS happy, run `xattr -d com.apple.quarantine ~/Downloads/clicker.dmg` or `xattr -r -d com.apple.quarantine /Applications/clicker.app`
+- [Linux (universal AppImage)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.AppImage)
+- [Linux (Debian-based `.deb`)](https://github.com/jeremy46231/clicker/releases/download/nightly/clicker.deb)
 
 Add the following line of JavaScript or HTML to your site to embed a clicker client:
 
