@@ -49,12 +49,14 @@
     ws.onopen = () => {
       connected = true
       status = 'Connected :3'
-      ws?.send(JSON.stringify({
-        type: 'identify',
-        name: username,
-        clientType: isDesktop ? 'desktop' : 'web',
-        userAgent: navigator.userAgent
-      }))
+      ws?.send(
+        JSON.stringify({
+          type: 'identify',
+          name: username,
+          clientType: isDesktop ? 'desktop' : 'web',
+          userAgent: navigator.userAgent,
+        })
+      )
     }
 
     ws.onclose = () => {
@@ -94,12 +96,14 @@
       setUsername(name)
       username = name
       if (connected && ws) {
-        ws.send(JSON.stringify({
-          type: 'identify',
-          name: username,
-          clientType: isDesktop ? 'desktop' : 'web',
-          userAgent: navigator.userAgent
-        }))
+        ws.send(
+          JSON.stringify({
+            type: 'identify',
+            name: username,
+            clientType: isDesktop ? 'desktop' : 'web',
+            userAgent: navigator.userAgent,
+          })
+        )
       }
     }
   }
@@ -135,7 +139,7 @@
                     name: username,
                     clientType: 'desktop',
                     userAgent: navigator.userAgent,
-                  }),
+                  })
                 )
               }
             }
@@ -153,43 +157,63 @@
   })
 </script>
 
-<Flash bind:active={flashActive} />
+<div class="container">
+  <Flash bind:active={flashActive} />
 
-{#if showStatus}
-  <div class="status">{status}</div>
-{/if}
+  {#if showStatus}
+    <div class="status">{status}</div>
+  {/if}
 
-{#if showForm}
-  <form class="connect-form" onsubmit={handleSubmit}>
-    <input
-      type="text"
-      bind:value={nameInput}
-      placeholder="Your name"
-      autocomplete="off"
-      required
-    />
-    <button type="submit">Connect</button>
-  </form>
-{:else if !requireName}
-  <form class="name-form" onsubmit={(e) => { e.preventDefault(); handleNameChange() }}>
-    <input
-      type="text"
-      bind:value={nameInput}
-      placeholder="Your name"
-      onblur={handleNameChange}
-    />
-  </form>
-{/if}
+  {#if showForm}
+    <form class="connect-form" onsubmit={handleSubmit}>
+      <input
+        type="text"
+        bind:value={nameInput}
+        placeholder="Your name"
+        autocomplete="off"
+        required
+      />
+      <button type="submit">Connect</button>
+    </form>
+  {:else if !requireName}
+    <form
+      class="name-form"
+      onsubmit={(e) => {
+        e.preventDefault()
+        handleNameChange()
+      }}
+    >
+      <input
+        type="text"
+        bind:value={nameInput}
+        placeholder="Your name"
+        onblur={handleNameChange}
+      />
+    </form>
+  {/if}
 
-<p class="hint">{hint}</p>
+  <p class="hint">{hint}</p>
+</div>
 
 <style>
+  .container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    width: 100%;
+    padding: 20px;
+    box-sizing: border-box;
+  }
   .status {
     font-size: 1.25rem;
     color: #22c55e;
     margin-bottom: 1rem;
+    text-align: center;
   }
-  .connect-form, .name-form {
+  .connect-form,
+  .name-form {
     display: flex;
     flex-direction: column;
     align-items: center;
